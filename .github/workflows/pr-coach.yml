@@ -10,41 +10,86 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
+
       - run: pip install pytest
 
-      # Detect the lesson from branch name
+      # 🧠 Detect lesson from branch
       - name: Detect lesson
         id: lesson
         run: |
-          echo "branch=${GITHUB_HEAD_REF}" >> $GITHUB_OUTPUT
+          BRANCH=${GITHUB_HEAD_REF}
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
-      # Run the appropriate lesson tests
-      - name: Run tests
-        id: test
+          # Extract number (lesson-1 → 1)
+          NUM=$(echo $BRANCH | grep -o '[0-9]*')
+          echo "number=$NUM" >> $GITHUB_OUTPUT
+
+      # 🚫 Prevent invalid branch names
+      - name: Validate branch name
         run: |
-          if [[ "${{ steps.lesson.outputs.branch }}" == "lesson-1" ]]; then
-            pytest tests/test_lesson1.py
-          elif [[ "${{ steps.lesson.outputs.branch }}" == "lesson-2" ]]; then
-            pytest tests/test_lesson2.py
+          if [[ ! "${{ steps.lesson.outputs.branch }}" =~ ^lesson-[0-9]+$ ]]; then
+            echo "❌ Branch must be named lesson-X"
+            exit 1
           fi
 
-      # Comment feedback on PR
+      # 🧪 Run correct test
+      - name: Run tests
+        run: |
+          LESSON=${{ steps.lesson.outputs.number }}
+
+          if [ -f "tests/test_lesson${LESSON}.py" ]; then
+            pytest tests/test_lesson${LESSON}.py
+          else
+            echo "❌ No test found for lesson $LESSON"
+            exit 1
+          fi
+
+      # 🏷️ Add label on success
+      - name: Add completion label
+        if: success()
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          labels: lesson-${{ steps.lesson.outputs.number }}-complete
+
+      # 💬 Feedback (dynamic + scalable)
       - name: Provide Feedback
         uses: actions/github-script@v7
         if: always()
         with:
           script: |
             const branch = context.payload.pull_request.head.ref;
+            const lessonNumber = parseInt(branch.split('-')[1]);
+            const nextLesson = lessonNumber + 1;
             const success = "${{ job.status }}" === "success";
 
             let message = "";
+
             if (success) {
-              message = `✅ ${branch} complete!\n\n🎉 Great job.\n\n🔓 Next lesson unlocked!\n\nNext steps:\n1. git fetch origin\n2. git checkout lesson-2\n3. Open a PR when ready`;
+              message = `✅ Lesson ${lessonNumber} complete!
+
+🎉 Nice work — you're making progress.
+
+🔓 Lesson ${nextLesson} unlocked!
+
+Next steps:
+1. git fetch origin
+2. git checkout lesson-${nextLesson}
+3. Open a new PR
+
+Keep going 🚀`;
             } else {
-              message = `❌ Not quite there.\n\n💡 Hints:\n- Check return values\n- Make sure function names match exactly\n- Run pytest locally\n\nPush again when ready 💪`;
+              message = `❌ Not quite there yet.
+
+💡 Hints:
+- Are you returning a value?
+- Does your function name match exactly?
+- Try running: pytest locally
+
+Push updates to this PR when ready 💪`;
             }
 
             github.rest.issues.createComment({
