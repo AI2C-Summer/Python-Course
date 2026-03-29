@@ -1,4 +1,4 @@
-from lessons.lesson1 import add
+from lessons.lesson2 import add
 
 def test_add():
     result = add(2, 3)
