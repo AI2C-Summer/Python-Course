@@ -1,20 +1,21 @@
 name: PR Coach
-
 on:
   pull_request:
     branches: [main]
 
+# 1. Added permissions required to add labels and post comments
+permissions:
+  pull-requests: write
+  issues: write
+
 jobs:
   coach:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - run: pip install pytest
 
       # 🧠 Detect lesson from branch
@@ -23,13 +24,13 @@ jobs:
         run: |
           BRANCH=${GITHUB_HEAD_REF}
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-
-          # Extract number (lesson-1 → 1)
-          NUM=$(echo $BRANCH | grep -o '[0-9]*')
+          # 2. Prevent workflow crash if branch has no numbers (grep exits with 1)
+          NUM=$(echo $BRANCH | grep -o '[0-9]*' || true)
           echo "number=$NUM" >> $GITHUB_OUTPUT
 
       # 🚫 Prevent invalid branch names
       - name: Validate branch name
+        id: validate # 3. Added ID to check outcome later
         run: |
           if [[ ! "${{ steps.lesson.outputs.branch }}" =~ ^lesson-[0-9]+$ ]]; then
             echo "❌ Branch must be named lesson-X"
@@ -40,7 +41,6 @@ jobs:
       - name: Run tests
         run: |
           LESSON=${{ steps.lesson.outputs.number }}
-
           if [ -f "tests/test_lesson${LESSON}.py" ]; then
             pytest tests/test_lesson${LESSON}.py
           else
@@ -53,12 +53,14 @@ jobs:
         if: success()
         uses: actions-ecosystem/action-add-labels@v1
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }} # 4. Explicitly define token
           labels: lesson-${{ steps.lesson.outputs.number }}-complete
 
       # 💬 Feedback (dynamic + scalable)
       - name: Provide Feedback
         uses: actions/github-script@v7
-        if: always()
+        # 5. Only run if it's a valid lesson branch, even if tests fail
+        if: always() && steps.validate.outcome == 'success'
         with:
           script: |
             const branch = context.payload.pull_request.head.ref;
@@ -67,29 +69,29 @@ jobs:
             const success = "${{ job.status }}" === "success";
 
             let message = "";
-
+            
             if (success) {
               message = `✅ Lesson ${lessonNumber} complete!
 
-🎉 Nice work — you're making progress.
+            🎉 Nice work - you're making progress.
 
-🔓 Lesson ${nextLesson} unlocked!
+            🔓 Lesson ${nextLesson} unlocked!
 
-Next steps:
-1. git fetch origin
-2. git checkout lesson-${nextLesson}
-3. Open a new PR
+            Next steps:
+            1. git fetch origin
+            2. git checkout lesson-${nextLesson}
+            3. Open a new PR
 
-Keep going 🚀`;
+            Keep going 🚀`;
             } else {
               message = `❌ Not quite there yet.
 
-💡 Hints:
-- Are you returning a value?
-- Does your function name match exactly?
-- Try running: pytest locally
+            💡 Hints:
+            - Are you returning a value?
+            - Does your function name match exactly?
+            - Try running: pytest locally
 
-Push updates to this PR when ready 💪`;
+            Push updates to this PR when ready 💪`;
             }
 
             github.rest.issues.createComment({
