@@ -8,4 +8,4 @@ def test_lesson1():
         text=True
     )
     #tests any non-empty string
-    assert result.stdout.strip() == ""
+    assert result.stdout.strip() != "" "You need to return a string"
